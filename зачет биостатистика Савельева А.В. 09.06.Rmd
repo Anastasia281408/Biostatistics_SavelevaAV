@@ -1,0 +1,112 @@
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(readr)
+library(ggpubr)
+library(car)
+```
+
+
+## Задание 1. Разведывательный анализ
+
+```{r}
+df <- read_csv("kidney_disease_dataset.csv")
+
+# Создание возрастных групп
+df$AgeGroup <- cut(df$`Age of the patient`, breaks = c(0, 24, 49, 74, Inf),
+                   labels = c("0-24", "25-49", "50-74", "75+"), right = TRUE)
+
+# Описание переменной Serum creatinine
+summary(df$`Serum creatinine (mg/dl)`)
+IQR(df$`Serum creatinine (mg/dl)`)
+
+# Распределение активности по возрастным группам
+table(df$AgeGroup, df$`Physical activity level`)
+prop.table(table(df$AgeGroup, df$`Physical activity level`), 1)
+```
+
+**Интерпретация:** Количественная переменная `Serum creatinine` имеет симметричное, но не нормальное распределение. Качественная переменная `Physical activity level` включает три почти равномерно распределённые группы. Распределение активности по возрасту относительно стабильное.
+
+
+## Задание 2. Визуализация
+
+```{r}
+# Гистограмма и плотность
+ggplot(df, aes(x = `Serum creatinine (mg/dl)`)) +
+  geom_histogram(aes(y = ..density..), bins = 30, fill = "skyblue", color = "black") +
+  geom_density(color = "red", size = 1) +
+  labs(title = "Распределение уровня креатинина")
+
+# Q-Q plot
+qqPlot(df$`Serum creatinine (mg/dl)`, main="Q-Q plot")
+
+# Boxplot по активности
+ggplot(df, aes(x = `Physical activity level`, y = `Serum creatinine (mg/dl)`)) +
+  geom_boxplot(fill = "lightgreen") +
+  labs(title = "Креатинин по уровням физической активности")
+```
+
+**Интерпретация:** Графики подтверждают, что распределение креатинина — не нормальное (по Q-Q plot и плотности). По группам активности медианы и разброс креатинина схожи, визуально различия отсутствуют.
+
+
+## Задание 3. Сравнение групп
+
+```{r}
+# Краскел–Уоллис
+kruskal.test(`Serum creatinine (mg/dl)` ~ `Physical activity level`, data = df)
+
+# Манн-Уитни по диабету
+wilcox.test(`Serum creatinine (mg/dl)` ~ `Diabetes mellitus (yes/no)`, data = df)
+
+# Boxplot по диабету
+ggplot(df, aes(x = `Diabetes mellitus (yes/no)`, y = `Serum creatinine (mg/dl)`)) +
+  geom_boxplot(fill = "lightblue") +
+  labs(title = "Креатинин у пациентов с диабетом и без")
+```
+
+**Интерпретация:** Тест Краскела–Уоллиса не выявил статистически значимых различий между группами активности. Манн–Уитни не показал различий между диабетиками и не-диабетиками. Это соответствует ожиданиям для синтетических данных.
+
+
+## Задание 4. Линейная регрессия
+
+```{r}
+df$Diabetes <- ifelse(df$`Diabetes mellitus (yes/no)` == "yes", 1, 0)
+model <- lm(`Serum creatinine (mg/dl)` ~ `Age of the patient` + Diabetes + 
+              `Physical activity level`, data = df)
+summary(model)
+
+# Диагностика
+par(mfrow = c(1, 2))
+plot(model$fitted.values, model$residuals,
+     main = "Остатки vs Предсказания", xlab = "Предсказанные значения", ylab = "Остатки")
+abline(h = 0, col = "red")
+qqPlot(model$residuals, main="Q-Q plot остатков")
+```
+
+**Интерпретация:** Модель линейной регрессии не выявила значимых предикторов уровня креатинина. Объясняющая способность модели практически отсутствует (R² ≈ 0). Остатки визуально случайны, но присутствует незначительная асимметрия.
+
+
+## Задание 5. Логистическая регрессия
+
+```{r}
+df$Diabetes <- ifelse(df$`Diabetes mellitus (yes/no)` == "yes", 1, 0)
+log_model <- glm(Diabetes ~ `Age of the patient` + `Serum creatinine (mg/dl)` + 
+                   `Physical activity level`, family = binomial(link = "logit"), data = df)
+summary(log_model)
+
+# Остатки и предсказанные вероятности
+df$predicted_prob <- predict(log_model, type = "response")
+df$residuals <- df$Diabetes - df$predicted_prob
+
+ggplot(df, aes(x = predicted_prob, y = residuals)) +
+  geom_point(alpha = 0.3) +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "Остатки логистической регрессии", x = "Предсказанные вероятности", y = "Остатки")
+```
+
+**Интерпретация:** Модель логистической регрессии не объясняет различия в наличии диабета между участниками. Все предикторы статистически незначимы, качество модели низкое. Это подтверждает отсутствие реальных закономерностей в синтетических данных.
